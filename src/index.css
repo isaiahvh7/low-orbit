@@ -25,7 +25,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  @media (max-width: 1024px) {
+  @media (max-width: 1920px) {
     font-size: 16px;
   }
 }
@@ -51,15 +51,28 @@
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   text-align: center;
   border-inline: 1px solid var(--border);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.globe-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
 }
 
 body {
@@ -108,4 +121,24 @@ code {
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+
+
+.app-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+
+  background:
+    radial-gradient(circle at center, rgba(0, 255, 255, 0.08), transparent 45%),
+    linear-gradient(rgba(255, 255, 255, 0.025) 50%, transparent 50%);
+
+  background-size:
+    100% 100%,
+    100% 4px;
+
+  mix-blend-mode: screen;
 }
