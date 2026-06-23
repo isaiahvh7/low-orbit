@@ -1,54 +1,65 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
+import type { TleResponse } from "../api/SatelliteApi";
+import { createSatrec, getSatelliteThreePosition } from "./orbitMath";
+
+const ORBIT_VISUAL_SCALE = 1.20;
+
 type SatelliteMarkerProps = {
+  tle: TleResponse;
   globeRadius: number;
 };
 
-const ORBIT_ROTATION: [number, number, number] = [0.8, 0.2, 0.6];
-
-export default function SatelliteMarker({ globeRadius }: SatelliteMarkerProps) {
+export default function SatelliteMarker({
+  tle,
+  globeRadius,
+}: SatelliteMarkerProps) {
   const satelliteRef = useRef<THREE.Group>(null);
 
-  const orbitRadius = globeRadius * 1.45;
+  const satrec = useMemo(() => {
+    return createSatrec(tle.line1, tle.line2);
+  }, [tle]);
 
-  // Radians per second. Increase this to make it faster.
-  const speed = 0.05;
-
-  useFrame(({ clock }) => {
+  useFrame(() => {
     if (!satelliteRef.current) return;
 
-    const angle = clock.getElapsedTime() * speed;
+    const position = getSatelliteThreePosition(
+      satrec,
+      new Date(),
+      globeRadius,
+      ORBIT_VISUAL_SCALE
+    );
 
-    const x = Math.cos(angle) * orbitRadius;
-    const y = 0;
-    const z = Math.sin(angle) * orbitRadius;
+    if (!position) {
+      satelliteRef.current.visible = false;
+      return;
+    }
 
-    satelliteRef.current.position.set(x, y, z);
+    satelliteRef.current.visible = true;
+    satelliteRef.current.position.copy(position);
   });
 
   return (
-    <group rotation={ORBIT_ROTATION}>
-      <group ref={satelliteRef}>
-        {/* Outer red glow */}
-        <mesh>
-          <sphereGeometry args={[0.18, 32, 32]} />
-          <meshBasicMaterial
-            color="#ff0033"
-            transparent
-            opacity={0.28}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
-        </mesh>
+    <group ref={satelliteRef}>
+      {/* Outer red glow */}
+      <mesh>
+        <sphereGeometry args={[0.18, 32, 32]} />
+        <meshBasicMaterial
+          color="#ff0033"
+          transparent
+          opacity={0.28}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
 
-        {/* Main satellite dot */}
-        <mesh>
-          <sphereGeometry args={[0.07, 32, 32]} />
-          <meshBasicMaterial color="#ff0033" />
-        </mesh>
-      </group>
+      {/* Main satellite dot */}
+      <mesh>
+        <sphereGeometry args={[0.07, 32, 32]} />
+        <meshBasicMaterial color="#ff0033" />
+      </mesh>
     </group>
   );
 }

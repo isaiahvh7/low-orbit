@@ -1,44 +1,52 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Line } from "@react-three/drei";
 
+import type { TleResponse } from "../api/SatelliteApi";
+import { createSatrec, getSatelliteThreePosition } from "./orbitMath";
+
 type OrbitLineProps = {
+  tle: TleResponse;
   globeRadius: number;
 };
 
 type Point3 = [number, number, number];
 
-const ORBIT_ROTATION: [number, number, number] = [0.8, 0.2, 0.6];
-const SEGMENT_COUNT = 144;
+type LineObject = THREE.Object3D & {
+  material?: THREE.Material | THREE.Material[];
+};
 
-function setLineOpacity(ref: React.RefObject<any>, opacity: number) {
-  if (!ref.current) return;
+const SEGMENT_COUNT = 180;
+const MINUTES_BEFORE = 46;
+const MINUTES_AFTER = 47;
+const ORBIT_VISUAL_SCALE = 1.20;
 
-  const material = ref.current.material as THREE.Material | THREE.Material[];
+function setLineOpacity(ref: RefObject<LineObject | null>, opacity: number) {
+  const line = ref.current;
 
-  if (Array.isArray(material)) {
-    material.forEach((mat) => {
-      mat.opacity = opacity;
-      mat.transparent = true;
+  if (!line?.material) return;
+
+  if (Array.isArray(line.material)) {
+    line.material.forEach((material) => {
+      material.opacity = opacity;
+      material.transparent = true;
     });
   } else {
-    material.opacity = opacity;
-    material.transparent = true;
+    line.material.opacity = opacity;
+    line.material.transparent = true;
   }
 }
 
 function OrbitSegment({
   start,
   end,
-  orbitRadius,
 }: {
   start: THREE.Vector3;
   end: THREE.Vector3;
-  orbitRadius: number;
 }) {
-  const coreRef = useRef<any>(null);
-  const glowRef = useRef<any>(null);
+  const coreRef = useRef<LineObject | null>(null);
+  const glowRef = useRef<LineObject | null>(null);
   const { camera } = useThree();
 
   const points: Point3[] = [
@@ -53,13 +61,15 @@ function OrbitSegment({
   useFrame(() => {
     const cameraDistanceFromCenter = camera.position.length();
     const segmentDistanceFromCamera = camera.position.distanceTo(midpoint);
+    const segmentDistanceFromCenter = midpoint.length();
 
     const closestPossibleDistance = Math.max(
       0.001,
-      cameraDistanceFromCenter - orbitRadius
+      cameraDistanceFromCenter - segmentDistanceFromCenter
     );
 
-    const farthestPossibleDistance = cameraDistanceFromCenter + orbitRadius;
+    const farthestPossibleDistance =
+      cameraDistanceFromCenter + segmentDistanceFromCenter;
 
     const depthAmount = THREE.MathUtils.clamp(
       (segmentDistanceFromCamera - closestPossibleDistance) /
@@ -68,8 +78,8 @@ function OrbitSegment({
       1
     );
 
-    const coreOpacity = THREE.MathUtils.lerp(0.95, 0.12, depthAmount);
-    const glowOpacity = THREE.MathUtils.lerp(0.2, 0.03, depthAmount);
+    const coreOpacity = THREE.MathUtils.lerp(0.95, 0.08, depthAmount);
+    const glowOpacity = THREE.MathUtils.lerp(0.2, 0.02, depthAmount);
 
     setLineOpacity(coreRef, coreOpacity);
     setLineOpacity(glowRef, glowOpacity);
@@ -77,9 +87,10 @@ function OrbitSegment({
 
   return (
     <>
-      {/* Glow layer */}
       <Line
-        ref={glowRef}
+        ref={(node) => {
+          glowRef.current = node as LineObject | null;
+        }}
         points={points}
         color="#00ffff"
         lineWidth={5}
@@ -88,9 +99,10 @@ function OrbitSegment({
         depthWrite={false}
       />
 
-      {/* Core layer */}
       <Line
-        ref={coreRef}
+        ref={(node) => {
+          coreRef.current = node as LineObject | null;
+        }}
         points={points}
         color="#00ffff"
         lineWidth={2}
@@ -102,44 +114,71 @@ function OrbitSegment({
   );
 }
 
-export default function OrbitLine({ globeRadius }: OrbitLineProps) {
-  const orbitRadius = globeRadius * 1.45;
+export default function OrbitLine({ tle, globeRadius }: OrbitLineProps) {
+  const [pathCenterTimeMs, setPathCenterTimeMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    function updatePathCenterTime() {
+      if (!cancelled) {
+        setPathCenterTimeMs(Date.now());
+      }
+    }
+
+    const timeoutId = window.setTimeout(updatePathCenterTime, 0);
+    const intervalId = window.setInterval(updatePathCenterTime, 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, [tle]);
 
   const segments = useMemo(() => {
-    const rotation = new THREE.Euler(...ORBIT_ROTATION);
+    if (pathCenterTimeMs === null) {
+      return [];
+    }
+
+    const satrec = createSatrec(tle.line1, tle.line2);
+    const totalMinutes = MINUTES_BEFORE + MINUTES_AFTER;
+    const positions: THREE.Vector3[] = [];
+
+    for (let i = 0; i <= SEGMENT_COUNT; i++) {
+      const minutesOffset =
+        -MINUTES_BEFORE + (i / SEGMENT_COUNT) * totalMinutes;
+
+      const date = new Date(pathCenterTimeMs + minutesOffset * 60 * 1000);
+
+      const position = getSatelliteThreePosition(
+        satrec,
+        date,
+        globeRadius,
+        ORBIT_VISUAL_SCALE
+      );
+
+      if (position) {
+        positions.push(position);
+      }
+    }
+
     const orbitSegments: { start: THREE.Vector3; end: THREE.Vector3 }[] = [];
 
-    for (let i = 0; i < SEGMENT_COUNT; i++) {
-      const angleA = (i / SEGMENT_COUNT) * Math.PI * 2;
-      const angleB = ((i + 1) / SEGMENT_COUNT) * Math.PI * 2;
-
-      const start = new THREE.Vector3(
-        Math.cos(angleA) * orbitRadius,
-        0,
-        Math.sin(angleA) * orbitRadius
-      ).applyEuler(rotation);
-
-      const end = new THREE.Vector3(
-        Math.cos(angleB) * orbitRadius,
-        0,
-        Math.sin(angleB) * orbitRadius
-      ).applyEuler(rotation);
-
-      orbitSegments.push({ start, end });
+    for (let i = 0; i < positions.length - 1; i++) {
+      orbitSegments.push({
+        start: positions[i],
+        end: positions[i + 1],
+      });
     }
 
     return orbitSegments;
-  }, [orbitRadius]);
+  }, [tle, globeRadius, pathCenterTimeMs]);
 
   return (
     <>
       {segments.map((segment, index) => (
-        <OrbitSegment
-          key={index}
-          start={segment.start}
-          end={segment.end}
-          orbitRadius={orbitRadius}
-        />
+        <OrbitSegment key={index} start={segment.start} end={segment.end} />
       ))}
     </>
   );
