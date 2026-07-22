@@ -5,4 +5,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: 'https://github.com/isaiahvh7/low-orbit',
+  worker: {
+    format: 'es', // ES modules support top-level await; iife (default) doesn't
+  },
+  build: {
+    target: 'esnext',
+  },
 })
