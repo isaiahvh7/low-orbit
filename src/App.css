@@ -102,7 +102,7 @@
   pointer-events: none;
   overflow: hidden;
 
-  --professor-face-scale: 28;
+  --professor-face-scale: 2000;
   --eye-x: 38.85%;
   --eye-y: 26.4%;
 }
